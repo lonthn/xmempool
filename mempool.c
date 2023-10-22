@@ -40,11 +40,13 @@ void xmempool_destroy(xmempool_t *mp) {
 
 void *xmempool_alloc(xmempool_t *mp, int n) {
   xmchunk_t **chunk;
-  uint64_t i, found, bits;
+  uint64_t i, bits;
+  uint64_t mask;
 
   if (mp == NULL || n > 64)
     return NULL;
 
+  mask = (UINT64_MAX >> (64 - n));
   chunk = &mp->head;
   while (*chunk != NULL) {
     // The chunk has not memory
@@ -53,19 +55,16 @@ void *xmempool_alloc(xmempool_t *mp, int n) {
       continue;
     }
 
-    i = 0, found = 0;
-    bits = ~(*chunk)->usebits;
-    while (i < 64) {
-      if (bits & 0x1)
-        found++;
-      else
-        found = 0;
-      if (found == n) {
+    i = (*chunk)->freeidx;
+    bits = ~((*chunk)->usebits >> i);
+    while (i+n <= 64) {
+      if ((bits & mask) == mask) {
         // 将bit标记为已使用.
-        (*chunk)->usebits |= (UINT64_MAX >> (64 - n)) << (i + 1 - n);
-        return XCHUNK_MEM(*chunk, (i + 1 - n), mp->blocksize);
+        (*chunk)->usebits |= mask << i;
+        (*chunk)->freeidx = i+n;
+        return XCHUNK_MEM(*chunk, i, mp->blocksize);
       }
-      bits >>= 1;
+      bits >>= 0x1;
       i++;
     }
 
@@ -77,7 +76,8 @@ void *xmempool_alloc(xmempool_t *mp, int n) {
     return NULL;
 
   (*chunk)->next = NULL;
-  (*chunk)->usebits |= (UINT64_MAX >> (64 - n));
+  (*chunk)->freeidx = n;
+  (*chunk)->usebits |= mask;
   return XCHUNK_MEM(*chunk, 0, mp->blocksize);
 }
 
@@ -97,6 +97,8 @@ void xmempool_free(xmempool_t *mp, void *mem, int n) {
       idx = mem == begin
             ? 0 : (mem - begin) / mp->blocksize;
       chunk->usebits ^= (UINT64_MAX >> (64 - n)) << idx;
+      if (idx < chunk->freeidx)
+        chunk->freeidx = idx;
       return;
     }
     chunk = chunk->next;

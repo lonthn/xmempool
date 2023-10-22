@@ -22,6 +22,7 @@
 typedef struct xmchunk {
   struct xmchunk *next;
   uint64_t usebits;
+  uint64_t freeidx;
 } xmchunk_t;
 
 typedef struct xmempool {
