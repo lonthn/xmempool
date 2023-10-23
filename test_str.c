@@ -23,6 +23,7 @@
 #define ARR_LEN(arr, type) (sizeof(arr) / sizeof(type))
 
 #define USE_XMEMPOOL
+#define XMEM_BLOCK_SIZE 16
 
 #ifdef USE_XMEMPOOL
 xmempool_t mp;
@@ -86,7 +87,7 @@ int64_t order_alloc() {
 
   for (i = 0; i < ARR_LEN(test_data, char *); i++) {
 #ifdef USE_XMEMPOOL
-    int block = (int) strlen(test_data[i]) / 16 + 1;
+    int block = (int) strlen(test_data[i]) / XMEM_BLOCK_SIZE + 1;
     strs[i].block = block;
     strs[i].ptr = xmempool_alloc(&mp, block);
 #else
@@ -107,7 +108,77 @@ int64_t order_alloc() {
 
   gettimeofday(&t2, NULL);
 
-  return (t2.tv_sec-t1.tv_sec) * 10000000 + (t2.tv_usec - t1.tv_usec);
+  return (t2.tv_sec-t1.tv_sec) * 1000000 + (t2.tv_usec - t1.tv_usec);
+}
+
+int64_t random_alloc() {
+  typedef struct xstr {
+    struct xstr *next;
+    int block;
+  } xstr_t;
+
+  int i, j;
+  int block;
+  long datanum, allocflag, idx, count;
+  struct timeval t1, t2;
+  xstr_t head, *curr, *tmp, *tmp2;
+
+  gettimeofday(&t1, NULL);
+
+  curr = &head;
+  count = 0;
+  datanum = ARR_LEN(test_data, char *);
+  for (i = 0; i < datanum * 2; i++) {
+    allocflag = random() % 2;
+    if (allocflag) {
+      idx = random() % datanum;
+#ifdef USE_XMEMPOOL
+      block = (int) (strlen(test_data[idx]) + sizeof(xstr_t)) / XMEM_BLOCK_SIZE + 1;
+      tmp = (xstr_t *) xmempool_alloc(&mp, block);
+#else
+      tmp = (xstr_t *) malloc(strlen(test_data[idx]) + sizeof(xstr_t));
+#endif
+      tmp->next = NULL;
+      tmp->block = block;
+      curr->next = tmp;
+      curr = tmp;
+      count++;
+    } else {
+      if (count == 0) continue;
+      j = 0;
+      idx = random() % count;
+      tmp = &head;
+      tmp2 = head.next;
+      while (j++ != idx) {
+        tmp = tmp2;
+        tmp2 = tmp2->next;
+      }
+      tmp->next = tmp2->next;
+      if (tmp2 == curr)
+        curr = tmp;
+#ifdef USE_XMEMPOOL
+      xmempool_free(&mp, tmp2, tmp2->block);
+#else
+      free(tmp2);
+#endif
+      count--;
+    }
+  }
+
+  curr = head.next;
+  while (curr != NULL) {
+    tmp = curr->next;
+#ifdef USE_XMEMPOOL
+    xmempool_free(&mp, curr, curr->block);
+#else
+    free(curr);
+#endif
+    curr = tmp;
+  }
+
+  gettimeofday(&t2, NULL);
+
+  return (t2.tv_sec-t1.tv_sec) * 1000000 + (t2.tv_usec - t1.tv_usec);
 }
 
 int main() {
@@ -117,7 +188,7 @@ int main() {
 
   //
 #ifdef USE_XMEMPOOL
-  xmempool_init(&mp, 16);
+  xmempool_init(&mp, XMEM_BLOCK_SIZE);
 #endif
 
   for (i = 0; i < count; i++)
