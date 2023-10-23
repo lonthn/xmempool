@@ -1,6 +1,16 @@
+// Copyright 2023 luo-zeqi
 //
-// Created by zeqi luo on 2023/10/22.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 #include <string.h>
 #include <assert.h>
@@ -12,6 +22,13 @@
 
 #define ARR_LEN(arr, type) (sizeof(arr) / sizeof(type))
 
+#define USE_XMEMPOOL
+
+#ifdef USE_XMEMPOOL
+xmempool_t mp;
+#endif
+
+// The Data Generate by Chat-GPT.
 const char *test_data[] = {
     "Hello World!",
     "Live and let live.",
@@ -56,73 +73,59 @@ const char *test_data[] = {
     "Where there's a will, there's a way.",
 };
 
-struct xstring {
-  int block;
-  char *ptr;
-};
+int64_t order_alloc() {
+  int i;
+  struct xstring {
+    int block;
+    char *ptr;
+  } strs[ARR_LEN(test_data, char *)];
 
-void xa();
-void ma();
-
-int main() {
-  // 初始化
-  (void *) (malloc(10000));
-
-  xa();
-  ma();
-}
-
-void xa() {
-  xmempool_t mp;
-  struct xstring strs[ARR_LEN(test_data, char *)];
   struct timeval t1, t2;
 
   gettimeofday(&t1, NULL);
 
-  //
-  xmempool_init(&mp, 16);
-
-  for (int i = 0; i < ARR_LEN(test_data, char *); i++) {
+  for (i = 0; i < ARR_LEN(test_data, char *); i++) {
+#ifdef USE_XMEMPOOL
     int block = (int) strlen(test_data[i]) / 16 + 1;
     strs[i].block = block;
     strs[i].ptr = xmempool_alloc(&mp, block);
-    memcpy(strs[i].ptr, test_data[i], strlen(test_data[i]));
+#else
+    strs[i].ptr = malloc(strlen(test_data[i]));
+#endif
     assert(strs[i].ptr);
+
+    memcpy(strs[i].ptr, test_data[i], strlen(test_data[i]));
   }
 
-  for (int i = 0; i < ARR_LEN(test_data, char *); i++) {
+  for (i = 0; i < ARR_LEN(test_data, char *); i++) {
+#ifdef USE_XMEMPOOL
     xmempool_free(&mp, strs[i].ptr, strs[i].block);
+#else
+    free(strs[i].ptr);
+#endif
   }
 
   gettimeofday(&t2, NULL);
 
-  printf("xmalloc use time: %ld\n",
-         (t2.tv_sec-t1.tv_sec) * 10000000
-         + (t2.tv_usec-t1.tv_usec));
-
-  xmempool_destroy(&mp);
+  return (t2.tv_sec-t1.tv_sec) * 10000000 + (t2.tv_usec - t1.tv_usec);
 }
 
-void ma() {
-  struct xstring strs[ARR_LEN(test_data, char *)];
-  struct timeval t1, t2;
+int main() {
+  int i;
+  int count = 10000;
+  int64_t tuse = 0;
 
-  gettimeofday(&t1, NULL);
+  //
+#ifdef USE_XMEMPOOL
+  xmempool_init(&mp, 16);
+#endif
 
-  for (int i = 0; i < ARR_LEN(test_data, char *); i++) {
-    strs[i].block = 0;
-    strs[i].ptr = malloc(strlen(test_data[i]));
-    memcpy(strs[i].ptr, test_data[i], strlen(test_data[i]));
-    assert(strs[i].ptr);
-  }
+  for (i = 0; i < count; i++)
+    tuse += order_alloc();
 
-  for (int i = 0; i < ARR_LEN(test_data, char *); i++) {
-    free((void *) strs[i].ptr);
-  }
+  printf("Average elapsed time: %ld\n", tuse / (int64_t) count);
 
-  gettimeofday(&t2, NULL);
-
-  printf("malloc use time: %ld\n",
-         (t2.tv_sec-t1.tv_sec) * 10000000
-         + (t2.tv_usec-t1.tv_usec));
+#ifdef USE_XMEMPOOL
+  xmempool_destroy(&mp);
+#endif
 }
