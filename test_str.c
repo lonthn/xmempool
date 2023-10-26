@@ -19,10 +19,11 @@
 #include <stdlib.h>
 
 #include "mempool.h"
+#include "llist.h"
 
 #define ARR_LEN(arr, type) (sizeof(arr) / sizeof(type))
 
-#define USE_XMEMPOOL
+//#define USE_XMEMPOOL
 #define XMEM_BLOCK_SIZE 16
 
 #ifdef USE_XMEMPOOL
@@ -113,7 +114,7 @@ int64_t order_alloc() {
 
 int64_t random_alloc() {
   typedef struct xstr {
-    struct xstr *next;
+    llnode_t node;
     int block;
   } xstr_t;
 
@@ -121,7 +122,9 @@ int64_t random_alloc() {
   int block;
   long datanum, allocflag, idx, count;
   struct timeval t1, t2;
-  xstr_t head, *curr, *tmp, *tmp2;
+  xstr_t head, *curr, *tmp;
+
+  llist_init(&head.node);
 
   gettimeofday(&t1, NULL);
 
@@ -138,36 +141,31 @@ int64_t random_alloc() {
 #else
       tmp = (xstr_t *) malloc(strlen(test_data[idx]) + sizeof(xstr_t));
 #endif
-      tmp->next = NULL;
       tmp->block = block;
-      curr->next = tmp;
-      curr = tmp;
+      llist_add(&head.node, &tmp->node);
       count++;
     } else {
       if (count == 0) continue;
-      j = 0;
+
       idx = random() % count;
-      tmp = &head;
-      tmp2 = head.next;
-      while (j++ != idx) {
-        tmp = tmp2;
-        tmp2 = tmp2->next;
+      curr = &head;
+      for (j = 0; j <= idx; j++) {
+        curr = (xstr_t *) (curr->node.next);
       }
-      tmp->next = tmp2->next;
-      if (tmp2 == curr)
-        curr = tmp;
+      llist_remove(&curr->node);
+
 #ifdef USE_XMEMPOOL
-      xmempool_free(&mp, tmp2, tmp2->block);
+      xmempool_free(&mp, curr, curr->block);
 #else
-      free(tmp2);
+      free(curr);
 #endif
       count--;
     }
   }
 
-  curr = head.next;
-  while (curr != NULL) {
-    tmp = curr->next;
+  curr = (xstr_t *) (head.node.next);
+  while (curr != &head) {
+    tmp = (xstr_t *) curr->node.next;
 #ifdef USE_XMEMPOOL
     xmempool_free(&mp, curr, curr->block);
 #else
@@ -192,7 +190,7 @@ int main() {
 #endif
 
   for (i = 0; i < count; i++)
-    tuse += order_alloc();
+    tuse += random_alloc();
 
   printf("Average elapsed time: %ld\n", tuse / (int64_t) count);
 
