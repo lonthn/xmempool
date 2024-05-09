@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef XDOC_MEMPOOL_H
-#define XDOC_MEMPOOL_H
-
-#include <stdint.h>
-
 // xmempool 是一个内存池, 它被分为很多个 chunk 并通过 next 指针
 // 链接起来, 每个 chunk 可分配 64 个内存块, 具体大小由用户初始化时
 // 提供的 blocksize 决定; 在申请时可以获得 n*blocksize 个字节且
@@ -29,8 +24,15 @@
 //          └--> [next chunk ptr | [1,0,0,0,...] | 64 blocks ]
 //                        ...
 
+#ifndef XDOC_MEMPOOL_H
+#define XDOC_MEMPOOL_H
+
+#include "llist.h"
+
+#include <stdint.h>
+
 typedef struct xmchunk {
-  struct xmchunk *next;
+  DECLARE_LLIST_NODE(struct xmchunk)
   uint64_t usebits;
   uint8_t freecount;
   uint8_t freeindex;
@@ -38,7 +40,10 @@ typedef struct xmchunk {
 
 typedef struct xmempool {
   short blocksize;
-  struct xmchunk *head;
+  int chunknum;
+//  struct xmchunk *head;
+  //llnode_t handle;
+  xmchunk_t lhandle;
 } xmempool_t;
 
 /// 创建一个内存池, 用户申请的单个内存大小固定为blocksize.
