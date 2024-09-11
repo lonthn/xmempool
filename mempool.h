@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#ifndef XDOC_MEMPOOL_H
+#define XDOC_MEMPOOL_H
+
+#include <stdint.h>
+
 // xmempool 是一个内存池, 它被分为很多个 chunk 并通过 next 指针
 // 链接起来, 每个 chunk 可分配 64 个内存块, 具体大小由用户初始化时
 // 提供的 blocksize 决定; 在申请时可以获得 n*blocksize 个字节且
@@ -24,41 +29,37 @@
 //          └--> [next chunk ptr | [1,0,0,0,...] | 64 blocks ]
 //                        ...
 
-#ifndef XDOC_MEMPOOL_H
-#define XDOC_MEMPOOL_H
-
-#include "llist.h"
-
-#include <stdint.h>
-
 typedef struct xmchunk {
-  DECLARE_LLIST_NODE(struct xmchunk)
+  uint8_t flag;
+  struct xmchunk *fnext;
+  struct xmchunk *next;
   uint64_t usebits;
-  uint8_t freecount;
-  uint8_t freeindex;
+  uint8_t sign;
 } xmchunk_t;
 
 typedef struct xmempool {
-  short blocksize;
-  int chunknum;
-//  struct xmchunk *head;
-  //llnode_t handle;
-  xmchunk_t lhandle;
+  short count;
+  short *blocksize;
+  struct xmchunk *head;
+  struct xmchunk **freechunks;
+  unsigned int nelts;
 } xmempool_t;
 
-/// 创建一个内存池, 用户申请的单个内存大小固定为blocksize.
-xmempool_t *xmempool_create(short blocksize);
+/// @brief 创建一个内存池, 并指定申请的单个内存大小.
+/// 支持提供多个不同等级的大小，在申请内存时自适应选择
+/// 合适的大小进行分配.
+xmempool_t *xmempool_create(int count, ...);
 
 /// 初始化一个内存池, 用户申请的单个内存大小固定为blocksize.
-void xmempool_init(xmempool_t *mp, short blocksize);
+void xmempool_init(xmempool_t *mp, int count, ...);
 
 /// 销毁一个内存池.
 void xmempool_destroy(xmempool_t *mp);
 
 /// 向内存池申请内存, 内存大小为 n * blocksize
-void *xmempool_alloc(xmempool_t *mp, int n);
+void *xmempool_alloc(xmempool_t *mp, int size);
 
 /// 归还内存, n 必须与申请时相同.
-void xmempool_free(xmempool_t *mp, void *mem, int n);
+void xmempool_free(xmempool_t *mp, void *mem);
 
 #endif //XDOC_MEMPOOL_H

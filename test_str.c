@@ -30,7 +30,7 @@
 xmempool_t mp;
 #endif
 
-// The Data Generate by Chat-GPT.
+// The data generate by Chat-GPT.
 const char *test_data[] = {
     "Hello World!",
     "Live and let live.",
@@ -77,20 +77,16 @@ const char *test_data[] = {
 
 int64_t order_alloc() {
   int i;
+  struct timeval t1, t2;
   struct xstring {
-    int block;
     char *ptr;
   } strs[ARR_LEN(test_data, char *)];
-
-  struct timeval t1, t2;
 
   gettimeofday(&t1, NULL);
 
   for (i = 0; i < ARR_LEN(test_data, char *); i++) {
 #ifdef USE_XMEMPOOL
-    int block = (int) strlen(test_data[i]) / XMEM_BLOCK_SIZE + 1;
-    strs[i].block = block;
-    strs[i].ptr = xmempool_alloc(&mp, block);
+    strs[i].ptr = xmempool_alloc(&mp, (int) strlen(test_data[i]));
 #else
     strs[i].ptr = malloc(strlen(test_data[i]));
 #endif
@@ -101,7 +97,7 @@ int64_t order_alloc() {
 
   for (i = 0; i < ARR_LEN(test_data, char *); i++) {
 #ifdef USE_XMEMPOOL
-    xmempool_free(&mp, strs[i].ptr, strs[i].block);
+    xmempool_free(&mp, strs[i].ptr);
 #else
     free(strs[i].ptr);
 #endif
@@ -113,54 +109,50 @@ int64_t order_alloc() {
 }
 
 typedef struct xstr {
-  DECLARE_LLIST_NODE(struct xstr)
-  int block;
+  llnode_t node;
 } xstr_t;
 
-xstr_t head;
-int nodenum;
+static long count = 0;
+static xstr_t head, *curr, *tmp;
 
 int64_t random_alloc() {
   int i, j;
-  int block;
+  int size;
   long datanum, allocflag, idx;
   struct timeval t1, t2;
-  xstr_t *curr, *tmp;
 
   gettimeofday(&t1, NULL);
 
   curr = &head;
   datanum = ARR_LEN(test_data, char *);
   for (i = 0; i < datanum * 2; i++) {
-    allocflag = random() % 2;
-    if (allocflag && nodenum < 100) {
-      idx = random() % datanum;
+    allocflag = rand() % 2;
+    if (allocflag && count < 1000) {
+      idx = rand() % datanum;
+      size = (int) (strlen(test_data[idx]) + sizeof(xstr_t));
 #ifdef USE_XMEMPOOL
-      block = (int) (strlen(test_data[idx]) + sizeof(xstr_t)) / XMEM_BLOCK_SIZE;
-      if (block == 0) block = 1;
-      tmp = (xstr_t *) xmempool_alloc(&mp, block);
+      tmp = (xstr_t *) xmempool_alloc(&mp, size);
 #else
-      tmp = (xstr_t *) malloc(strlen(test_data[idx]) + sizeof(xstr_t));
+      tmp = (xstr_t *) malloc(size);
 #endif
-      tmp->block = block;
-      LLIST_ADD(&head, tmp);
-      nodenum++;
+      llist_add(&head.node, &tmp->node);
+      count++;
     } else {
-      if (nodenum == 0) continue;
+      if (count == 0) continue;
 
-      idx = random() % nodenum;
+      idx = rand() % count;
       curr = &head;
       for (j = 0; j <= idx; j++) {
-        curr = (xstr_t *) (curr->next);
+        curr = (xstr_t *) (curr->node.next);
       }
-      LLIST_REMOVE(curr);
+      llist_remove(&curr->node);
 
 #ifdef USE_XMEMPOOL
-      xmempool_free(&mp, curr, curr->block);
+      xmempool_free(&mp, curr);
 #else
       free(curr);
 #endif
-      nodenum--;
+      count--;
     }
   }
 
@@ -171,21 +163,20 @@ int64_t random_alloc() {
 
 int main() {
   int i;
-  int count = 10000;
+  int batch = 100000;
   int64_t tuse = 0;
 
-  nodenum = 0;
-  LLIST_INIT(&head);
+  llist_init(&head.node);
 
   //
 #ifdef USE_XMEMPOOL
-  xmempool_init(&mp, XMEM_BLOCK_SIZE);
+  xmempool_init(&mp, 4, 16, 24, 32, 64);
 #endif
 
-  for (i = 0; i < count; i++)
-    tuse += order_alloc();
+  for (i = 0; i < batch; i++)
+    tuse += random_alloc();
 
-  printf("Average elapsed time: %ld\n", tuse / (int64_t) count);
+  printf("Average elapsed time: %lld\n", tuse / (int64_t) count);
 
 #ifdef USE_XMEMPOOL
   xmempool_destroy(&mp);
